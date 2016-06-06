@@ -9,7 +9,8 @@ from sklearn.preprocessing import LabelEncoder
 XLIMIT = 10
 YLIMIT = 10
 
-FEATURE_LIST = ['x','y','accuracy','day','dow','hour']
+#FEATURE_LIST = ['x','y','accuracy','day','dow','hour']
+FEATURE_LIST = ['x','y','accuracy','dow','month','hour']
 
 def read_files(train_name, test_name):
 	types = {'row_id': np.dtype(int), \
@@ -31,34 +32,46 @@ def generate_features(train, test):
 	#as verified, time is in minutes
 	train['day'] = (train['time'] / (60.0 * 24.0)).astype(int)
 	train['dow'] = train['day'] % 7
+	train['month'] = train['day'] % 30
 	train['hour'] = (train['time'] / 60.0).astype(int) % 24
 
-	# train.loc[((train['hour'] >= 22) | (train['hour'] < 6) ), 'tod'] = 0
-	# train.loc[((train['hour'] >= 6) & (train['hour'] < 10) ), 'tod'] = 1
-	# train.loc[((train['hour'] >= 10) & (train['hour'] < 14) ), 'tod'] = 2
-	# train.loc[((train['hour'] >= 14) & (train['hour'] < 17) ), 'tod'] = 3
-	# train.loc[((train['hour'] >= 17) & (train['hour'] < 22) ), 'tod'] = 4
+	
+	# train.loc[((train['hour'] >= 0) & (train['hour'] < 8) ), 'tod'] = 1
+	# train.loc[((train['hour'] >= 8) & (train['hour'] < 16) ), 'tod'] = 2
+	# train.loc[((train['hour'] >= 16) & (train['hour'] < 24) ), 'tod'] = 3
+	
 
 	test['day'] = (test['time'] / (60.0 * 24.0)).astype(int)
 	test['dow'] = test['day'] % 7
+	test['month'] = test['day'] % 30
 	test['hour'] = (test['time'] / 60.0).astype(int) % 24
 
-	# test.loc[((test['hour'] >= 22) | (test['hour'] < 6) ), 'tod'] = 0
-	# test.loc[((test['hour'] >= 6) & (test['hour'] < 10) ), 'tod'] = 1
-	# test.loc[((test['hour'] >= 10) & (test['hour'] < 14) ), 'tod'] = 2
-	# test.loc[((test['hour'] >= 14) & (test['hour'] < 17) ), 'tod'] = 3
-	# test.loc[((test['hour'] >= 17) & (test['hour'] < 22) ), 'tod'] = 4
+	# test.loc[((test['hour'] >= 0) & (test['hour'] < 8) ), 'tod'] = 1
+	# test.loc[((test['hour'] >= 8) & (test['hour'] < 16) ), 'tod'] = 2
+	# test.loc[((test['hour'] >= 16) & (test['hour'] < 24) ), 'tod'] = 3
 
 	#split the map into several buckets
-	cell_size = 1
-	cell_total = (XLIMIT/cell_size) * (YLIMIT/cell_size)
-	train['xbucket'] = (train['x'].astype(int) / cell_size).astype(int)
-	train['ybucket'] = (train['y'].astype(int) / cell_size).astype(int)
-	train['cellID'] = train['ybucket'] * (XLIMIT/ cell_size) + train['xbucket']
+	xcell_size = 0.5
+	ycell_size = 1
+	cell_total = int((XLIMIT/xcell_size) * (YLIMIT/ycell_size))
 
-	test['xbucket'] = (test['x'].astype(int) / cell_size).astype(int)
-	test['ybucket'] = (test['y'].astype(int) / cell_size).astype(int)
-	test['cellID'] = test['ybucket'] * (XLIMIT/ cell_size) + test['xbucket']
+	train['x_adj'] = train['x']
+	train.loc[(train['x_adj'] == XLIMIT),'x_adj'] = train['x_adj'] - 0.0001
+	train['y_adj'] = train['y']
+	train.loc[(train['y_adj'] == YLIMIT),'y_adj'] = train['y_adj'] - 0.0001
+
+	train['xbucket'] = (train['x_adj'].astype(int) / xcell_size).astype(int)
+	train['ybucket'] = (train['y_adj'].astype(int) / ycell_size).astype(int)
+	train['cellID'] = train['ybucket'] * (XLIMIT/ xcell_size) + train['xbucket']
+
+	test['x_adj'] = test['x']
+	test.loc[(test['x_adj'] == XLIMIT),'x_adj'] = test['x_adj'] - 0.0001
+	test['y_adj'] = test['y']
+	test.loc[(test['y_adj'] == YLIMIT),'y_adj'] = test['y_adj'] - 0.0001
+
+	test['xbucket'] = (test['x_adj'].astype(int) / xcell_size).astype(int)
+	test['ybucket'] = (test['y_adj'].astype(int) / ycell_size).astype(int)
+	test['cellID'] = test['ybucket'] * (XLIMIT/ xcell_size) + test['xbucket']
 
 	#normalize features	
 	# for f in FEATURE_LIST:
@@ -101,7 +114,10 @@ def train_model_on_cell(train, test, numCells, th):
 		# print len(train_curr)
 		# print len(test_curr)
 
-		rf = RandomForestClassifier(max_depth = 20, n_estimators = 30)
+		#increase estimators won't influence too much
+		rf = RandomForestClassifier(max_depth = 20, n_estimators = 30)  
+
+		#add weight won't influence too much
 		#rf.fit(train_X, train_Y, sample_weight = weight)
 		rf.fit(train_X, train_Y)
 		test_predict = rf.predict(test_X)
@@ -137,7 +153,7 @@ if __name__ == '__main__':
 	print "    Finished."
 
 	print "Training cell by cell. Total number is %d  ..." % cell_total
-	test_df = train_model_on_cell(train_df, test_df, cell_total, 200)
+	test_df = train_model_on_cell(train_df, test_df, cell_total, 100)
 
 	#print len(test_df.loc[test_df.place_id == test_df.predict]) / float(len(test_df))
 
