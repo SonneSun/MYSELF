@@ -26,8 +26,29 @@ def read_files(train_name, test_name):
 	return train, test
 
 
+def accuracy_features(train):
+
+	print "  accuracy features ..."
+	place_id_mode_loc = train.groupby(['place_id'])['x','y'].agg(lambda x:x.value_counts().index[0]).reset_index()
+	place_id_mode_loc.columns = ['place_id','x_mode','y_mode']
+	new_train = pd.merge(train, place_id_mode_loc, on = ['place_id'], how = 'inner')
+	new_train['x_diff'] = abs(new_train['x_mode'] - new_train['x'])
+	new_train['y_diff'] = abs(new_train['y_mode'] - new_train['y'])
+
+	new_train['acc'] = new_train['accuracy']
+	new_train.loc[(new_train['accuracy'] > 200), 'acc'] = 200
+	new_train['acc'] = (new_train['acc']/10).astype(int)
+
+	acc_df = new_train.groupby(['acc'])['x_diff','y_diff'].mean().reset_index()
+
+	print "  finished."
+
+	return acc_df
+
 
 def generate_features(train, test):
+
+	#acc = accuracy_features(train)
 
 	#as verified, time is in minutes
 	train['day'] = (train['time'] / (60.0 * 24.0)).astype(int)
@@ -35,6 +56,11 @@ def generate_features(train, test):
 	train['month'] = train['day'] % 30
 	train['hour'] = (train['time'] / 60.0).astype(int) % 24
 
+	# train['acc'] = train['accuracy']
+	# train.loc[(train['accuracy'] > 200), 'acc'] = 200
+	# train['acc'] = (train['acc']/10).astype(int)
+
+	# train = pd.merge(train, acc, on = ['acc'], how = 'inner')
 	
 	# train.loc[((train['hour'] >= 0) & (train['hour'] < 8) ), 'tod'] = 1
 	# train.loc[((train['hour'] >= 8) & (train['hour'] < 16) ), 'tod'] = 2
@@ -46,13 +72,20 @@ def generate_features(train, test):
 	test['month'] = test['day'] % 30
 	test['hour'] = (test['time'] / 60.0).astype(int) % 24
 
+	# test['acc'] = test['accuracy']
+	# test.loc[(test['accuracy'] > 200), 'acc'] = 200
+	# test['acc'] = (test['acc']/10).astype(int)
+
+	# test = pd.merge(test, acc, on = ['acc'], how = 'inner')
+
+
 	# test.loc[((test['hour'] >= 0) & (test['hour'] < 8) ), 'tod'] = 1
 	# test.loc[((test['hour'] >= 8) & (test['hour'] < 16) ), 'tod'] = 2
 	# test.loc[((test['hour'] >= 16) & (test['hour'] < 24) ), 'tod'] = 3
 
 	#split the map into several buckets
-	xcell_size = 0.5
-	ycell_size = 1
+	xcell_size = 0.2
+	ycell_size = 0.5
 	cell_total = int((XLIMIT/xcell_size) * (YLIMIT/ycell_size))
 
 	train['x_adj'] = train['x']
@@ -60,8 +93,8 @@ def generate_features(train, test):
 	train['y_adj'] = train['y']
 	train.loc[(train['y_adj'] == YLIMIT),'y_adj'] = train['y_adj'] - 0.0001
 
-	train['xbucket'] = (train['x_adj'].astype(int) / xcell_size).astype(int)
-	train['ybucket'] = (train['y_adj'].astype(int) / ycell_size).astype(int)
+	train['xbucket'] = (train['x_adj']/ xcell_size).astype(int)
+	train['ybucket'] = (train['y_adj'] / ycell_size).astype(int)
 	train['cellID'] = train['ybucket'] * (XLIMIT/ xcell_size) + train['xbucket']
 
 	test['x_adj'] = test['x']
@@ -69,8 +102,8 @@ def generate_features(train, test):
 	test['y_adj'] = test['y']
 	test.loc[(test['y_adj'] == YLIMIT),'y_adj'] = test['y_adj'] - 0.0001
 
-	test['xbucket'] = (test['x_adj'].astype(int) / xcell_size).astype(int)
-	test['ybucket'] = (test['y_adj'].astype(int) / ycell_size).astype(int)
+	test['xbucket'] = (test['x_adj'] / xcell_size).astype(int)
+	test['ybucket'] = (test['y_adj'] / ycell_size).astype(int)
 	test['cellID'] = test['ybucket'] * (XLIMIT/ xcell_size) + test['xbucket']
 
 	#normalize features	
@@ -91,6 +124,7 @@ def train_model_on_cell(train, test, numCells, th):
 		start = time.time()
 
 		train_curr = train.loc[train.cellID == i].reset_index(drop = True)
+		
 		if len(train_curr) == 0:
 			continue
 
@@ -119,9 +153,10 @@ def train_model_on_cell(train, test, numCells, th):
 
 		#add weight won't influence too much
 		#rf.fit(train_X, train_Y, sample_weight = weight)
+
 		rf.fit(train_X, train_Y)
+		#test_predict = rf.predict_proba(test_X)
 		test_predict = rf.predict(test_X)
-		
 		# test_predict = np.argsort(test_predict, axis=1)[:,::-1][:,:3]
 		# test_predict = le.inverse_transform(test_predict)
 		
@@ -129,7 +164,9 @@ def train_model_on_cell(train, test, numCells, th):
 		result_df = pd.DataFrame({'index': test_index, 'place_id': test_label, 'predict': test_predict})
 		print len(result_df.loc[result_df.place_id == result_df.predict]) / float(len(result_df))
 		
-		#test.loc[test_index,'predict'] = test_predict
+		# test.loc[test_index,'place_id_1'] = test_predict[:,0]
+		# test.loc[test_index,'place_id_2'] = test_predict[:,1]
+		# test.loc[test_index,'place_id_3'] = test_predict[:,2]
 
 		end = time.time()
 		print "    finished. Uses %f s in time. " % (end - start) 
@@ -153,12 +190,11 @@ if __name__ == '__main__':
 	print "    Finished."
 
 	print "Training cell by cell. Total number is %d  ..." % cell_total
-	test_df = train_model_on_cell(train_df, test_df, cell_total, 100)
+	test_df = train_model_on_cell(train_df, test_df, cell_total, 10)
 
 	#print len(test_df.loc[test_df.place_id == test_df.predict]) / float(len(test_df))
 
-	# result_df = test_df[['row_id','predict']]
-	# result_df.columns = ['row_id', 'place_id']
+	# result_df = test_df[['row_id','place_id_1','place_id_2','place_id_3']]
 	# result_df.to_csv('result.csv', index = False)
 
 
